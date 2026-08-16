@@ -1,0 +1,180 @@
+:root {
+  --surface-1:      #fcfcfb;
+  --page-plane:     #f6f5f2;
+  --text-primary:   #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted:     #898781;
+  --gridline:       #e1e0d9;
+  --border:         rgba(11, 11, 11, 0.10);
+  --accent:         #e3762e;
+  --accent-wash:    rgba(227, 118, 46, 0.10);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: system-ui, -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
+  background: var(--page-plane);
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  padding: 48px 16px;
+  color: var(--text-primary);
+}
+
+.app {
+  width: 100%;
+  max-width: 760px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  box-shadow: 0 10px 30px rgba(11, 11, 11, 0.06);
+  padding: 36px 32px;
+}
+
+h1 { font-size: 1.6rem; font-weight: 800; margin: 0 0 4px; }
+h2 { font-size: 1.1rem; margin: 0; }
+h3 { font-size: 0.98rem; margin: 0 0 8px; }
+h4 { font-size: 0.9rem; margin: 0 0 4px; }
+.sub { color: var(--text-secondary); margin: 4px 0 0; font-size: 0.88rem; }
+
+.breadcrumb {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin: 18px 0;
+}
+.breadcrumb button {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 0;
+}
+
+.list-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+
+.primary-btn {
+  background: var(--text-primary);
+  color: var(--surface-1);
+  border: none;
+  border-radius: 999px;
+  padding: 9px 16px;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.primary-btn:hover { opacity: 0.85; }
+
+.ghost-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 9px 16px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.card-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.card-item {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.card-item:hover { background: var(--accent-wash); }
+.card-item .name { font-weight: 700; }
+.card-item .meta { font-size: 0.78rem; color: var(--text-muted); }
+
+.step-block {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 18px;
+  margin-bottom: 16px;
+}
+
+textarea, input[type="text"], select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 0.9rem;
+  font-family: inherit;
+  background: var(--surface-1);
+  color: var(--text-primary);
+  margin: 8px 0;
+}
+
+.card-checklist { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.card-checklist li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--gridline);
+  border-radius: 10px;
+  font-size: 0.85rem;
+}
+.card-checklist .cat-badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--accent-wash);
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.card-checklist .card-actions { margin-left: auto; display: flex; gap: 6px; }
+.card-checklist button {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.add-card-row { display: flex; gap: 8px; align-items: center; }
+.add-card-row select { width: 120px; flex-shrink: 0; margin: 0; }
+.add-card-row input { flex: 1; margin: 0; }
+
+.candidate-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-top: 14px;
+}
+.candidate-card {
+  border: 2px solid var(--gridline);
+  border-radius: 12px;
+  overflow: hidden;
+  cursor: pointer;
+  text-align: center;
+}
+.candidate-card.selected { border-color: var(--accent); }
+.candidate-card img { width: 100%; display: block; }
+.candidate-card .pick-label { padding: 6px; font-size: 0.8rem; color: var(--text-secondary); }
+
+.confirmed-image {
+  width: 200px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  display: block;
+  margin-bottom: 14px;
+}
+
+.next-stub {
+  background: var(--accent-wash);
+  border-radius: 12px;
+  padding: 14px 16px;
+}
+
+.error { color: #c0392b; font-size: 0.82rem; min-height: 1.2em; margin: 4px 0 0; }
+.muted { color: var(--text-muted); text-align: center; padding: 24px 0; }

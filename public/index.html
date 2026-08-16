@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>컷툰 제작 AI 코파일럿</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <h1>컷툰 제작 AI 코파일럿</h1>
+    <p class="sub">리브라이블리 해커톤 프로토타입 — 회사만의 컷툰 스타일을 프리셋으로 저장하고, 소재 하나에서 완성 콘텐츠까지</p>
+
+    <nav class="breadcrumb" id="breadcrumb"></nav>
+
+    <!-- 1. Workspace -->
+    <section id="workspace-view">
+      <div class="list-header">
+        <h2>Workspace</h2>
+        <button class="primary-btn" id="new-workspace-btn">+ 새 Workspace</button>
+      </div>
+      <ul class="card-list" id="workspace-list"></ul>
+    </section>
+
+    <!-- 2. Project -->
+    <section id="project-view" hidden>
+      <div class="list-header">
+        <h2>Project</h2>
+        <button class="primary-btn" id="new-project-btn">+ 새 Project</button>
+      </div>
+      <ul class="card-list" id="project-list"></ul>
+    </section>
+
+    <!-- 3. Preset Builder -->
+    <section id="preset-view" hidden>
+      <h2>Preset Builder</h2>
+
+      <div class="step-block" id="step1-block">
+        <h3>1단계 — 추출 및 제안</h3>
+        <p class="sub">원하는 컷툰 디자인을 자연어로 설명하면(레퍼런스 이미지 업로드 대신, 프로토타입은 텍스트로 대체), 시스템이 특징을 제안합니다.</p>
+        <textarea id="reference-note" rows="2" placeholder="예: 파란 카라티를 입은 동물 캐릭터, 굵은 외곽선, 파스텔톤"></textarea>
+        <button class="primary-btn" id="suggest-btn">특징 제안받기</button>
+      </div>
+
+      <div class="step-block" id="step2-block" hidden>
+        <h3>2단계 — 선택 및 누적 (스타일 카드)</h3>
+        <ul class="card-checklist" id="style-card-list"></ul>
+        <div class="add-card-row">
+          <select id="new-card-category">
+            <option value="character">캐릭터</option>
+            <option value="style">시각 스타일</option>
+            <option value="scene">장면 규칙</option>
+            <option value="rule">표현 규칙</option>
+          </select>
+          <input type="text" id="new-card-content" placeholder="직접 규칙 추가 (예: 등장인물은 파란색 카라티를 입고 과장된 몸짓)" />
+          <button class="ghost-btn" id="add-card-btn">추가</button>
+        </div>
+      </div>
+
+      <div class="step-block" id="step3-block" hidden>
+        <h3>3단계 — 생성 및 확정</h3>
+        <button class="primary-btn" id="generate-btn">대표 이미지 3안 생성</button>
+        <div class="candidate-grid" id="candidate-grid"></div>
+      </div>
+
+      <div class="step-block" id="confirmed-block" hidden>
+        <h3>✅ 프리셋 확정됨</h3>
+        <img id="confirmed-image" class="confirmed-image" alt="확정된 프리셋 대표 이미지" />
+        <div class="next-stub">
+          <h4>Session Studio (2차 해커톤 범위)</h4>
+          <p class="sub">이 프리셋을 반영해서 소재 입력 → 컷 수 질문 → 3안 생성 → 수정 반복으로 이어집니다. 다음 스프린트에서 이어서 만듭니다.</p>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

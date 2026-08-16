@@ -1,0 +1,12 @@
+{
+  "name": "cuttoon-copilot",
+  "version": "0.1.0",
+  "description": "컷툰 제작 AI 코파일럿 — 리브라이블리 해커톤 프로토타입",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
