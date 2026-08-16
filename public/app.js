@@ -118,12 +118,20 @@ async function fetchWorkspaces() {
         <li class="card-item" data-id="${w.id}">
           <span class="name">${w.name}</span>
           <span class="meta">${new Date(w.created_at).toLocaleDateString("ko-KR")}</span>
+          <button class="delete-item-btn" data-id="${w.id}" title="삭제">✕</button>
         </li>
       `).join("")
     : `<p class="muted">아직 Workspace가 없습니다. "+ 새 Workspace"로 시작하세요.</p>`;
 }
 
 workspaceListEl.addEventListener("click", async (e) => {
+  const delBtn = e.target.closest(".delete-item-btn");
+  if (delBtn) {
+    if (!confirm("이 Workspace와 그 안의 모든 Project/Session/완성본을 전부 삭제할까요? 되돌릴 수 없습니다.")) return;
+    await fetch(`${API}/workspaces/${delBtn.dataset.id}`, { method: "DELETE" });
+    fetchWorkspaces();
+    return;
+  }
   const item = e.target.closest(".card-item");
   if (!item) return;
   const res = await fetch(`${API}/workspaces`);
@@ -153,12 +161,20 @@ async function fetchProjects() {
         <li class="card-item" data-id="${p.id}">
           <span class="name">${p.name}</span>
           <span class="meta">${new Date(p.created_at).toLocaleDateString("ko-KR")}</span>
+          <button class="delete-item-btn" data-id="${p.id}" title="삭제">✕</button>
         </li>
       `).join("")
     : `<p class="muted">아직 Project가 없습니다. "+ 새 Project"로 시작하세요.</p>`;
 }
 
 projectListEl.addEventListener("click", async (e) => {
+  const delBtn = e.target.closest(".delete-item-btn");
+  if (delBtn) {
+    if (!confirm("이 Project와 그 안의 프리셋/모든 Session/완성본을 전부 삭제할까요? 되돌릴 수 없습니다.")) return;
+    await fetch(`${API}/projects/${delBtn.dataset.id}`, { method: "DELETE" });
+    fetchProjects();
+    return;
+  }
   const item = e.target.closest(".card-item");
   if (!item) return;
   const res = await fetch(`${API}/workspaces/${currentWorkspace.id}/projects`);
@@ -332,6 +348,7 @@ async function fetchSessions() {
         <li class="card-item" data-id="${s.id}">
           <span class="name">${s.name}</span>
           <span class="meta">${s.status === "completed" ? "완성" : "작성중"} · ${s.cut_count}컷</span>
+          <button class="delete-item-btn" data-id="${s.id}" title="삭제">✕</button>
         </li>
       `).join("")
     : `<p class="muted">아직 세션이 없습니다. "+ 새 세션"으로 시작하세요.</p>`;
@@ -408,6 +425,13 @@ document.getElementById("create-session-btn").addEventListener("click", async ()
 });
 
 sessionListEl.addEventListener("click", async (e) => {
+  const delBtn = e.target.closest(".delete-item-btn");
+  if (delBtn) {
+    if (!confirm("이 세션과 저장된 완성본을 전부 삭제할까요? 되돌릴 수 없습니다.")) return;
+    await fetch(`${API}/sessions/${delBtn.dataset.id}`, { method: "DELETE" });
+    fetchSessions();
+    return;
+  }
   const item = e.target.closest(".card-item");
   if (!item) return;
   await openSession(item.dataset.id);

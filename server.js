@@ -9,6 +9,33 @@ const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
+// ---------- 연쇄 삭제 헬퍼 ----------
+// node:sqlite는 외래키 제약을 강제하지 않아서(PRAGMA 안 켬), 위→아래 순서로 직접 지운다.
+
+function deleteSessionCascade(sessionId) {
+  db.prepare("DELETE FROM comic_outputs WHERE session_id = ?").run(sessionId);
+  db.prepare("DELETE FROM sessions WHERE id = ?").run(sessionId);
+}
+
+function deleteProjectCascade(projectId) {
+  const preset = db.prepare("SELECT * FROM presets WHERE project_id = ?").get(projectId);
+  if (preset) {
+    db.prepare("DELETE FROM style_cards WHERE preset_id = ?").run(preset.id);
+    db.prepare("DELETE FROM preset_candidates WHERE preset_id = ?").run(preset.id);
+    db.prepare("DELETE FROM presets WHERE id = ?").run(preset.id);
+  }
+  const sessions = db.prepare("SELECT id FROM sessions WHERE project_id = ?").all(projectId);
+  for (const s of sessions) db.prepare("DELETE FROM comic_outputs WHERE session_id = ?").run(s.id);
+  db.prepare("DELETE FROM sessions WHERE project_id = ?").run(projectId);
+  db.prepare("DELETE FROM projects WHERE id = ?").run(projectId);
+}
+
+function deleteWorkspaceCascade(workspaceId) {
+  const projects = db.prepare("SELECT id FROM projects WHERE workspace_id = ?").all(workspaceId);
+  for (const p of projects) deleteProjectCascade(p.id);
+  db.prepare("DELETE FROM workspaces WHERE id = ?").run(workspaceId);
+}
+
 // ---------- Workspace ----------
 
 app.get("/api/workspaces", (req, res) => {
@@ -22,6 +49,11 @@ app.post("/api/workspaces", (req, res) => {
   const info = db.prepare("INSERT INTO workspaces (name) VALUES (?)").run(name);
   const row = db.prepare("SELECT * FROM workspaces WHERE id = ?").get(info.lastInsertRowid);
   res.status(201).json(row);
+});
+
+app.delete("/api/workspaces/:id", (req, res) => {
+  deleteWorkspaceCascade(req.params.id);
+  res.status(204).end();
 });
 
 // ---------- Project (+ Preset 자동 생성) ----------
@@ -39,6 +71,11 @@ app.post("/api/workspaces/:id/projects", (req, res) => {
   db.prepare("INSERT INTO presets (project_id, status) VALUES (?, 'draft')").run(projectId);
   const row = db.prepare("SELECT * FROM projects WHERE id = ?").get(projectId);
   res.status(201).json(row);
+});
+
+app.delete("/api/projects/:id", (req, res) => {
+  deleteProjectCascade(req.params.id);
+  res.status(204).end();
 });
 
 // 프로젝트 상세 = 프리셋 + 스타일카드 + 대표이미지 후보까지 한 번에
@@ -158,6 +195,11 @@ app.post("/api/projects/:id/sessions", (req, res) => {
   ).run(req.params.id, name, materialText, cutCount);
   const row = db.prepare("SELECT * FROM sessions WHERE id = ?").get(info.lastInsertRowid);
   res.status(201).json(row);
+});
+
+app.delete("/api/sessions/:id", (req, res) => {
+  deleteSessionCascade(req.params.id);
+  res.status(204).end();
 });
 
 app.get("/api/sessions/:id", (req, res) => {
