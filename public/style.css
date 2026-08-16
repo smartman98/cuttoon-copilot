@@ -256,3 +256,26 @@ textarea, input[type="text"], select {
 .editor-cut-actions button:disabled { opacity: 0.35; cursor: not-allowed; }
 
 .editor-actions { display: flex; justify-content: space-between; margin-top: 14px; }
+
+.template-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0 14px;
+}
+.template-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.template-btn:hover { background: var(--accent-wash); }
+.template-btn.active { border-color: var(--accent); background: var(--accent-wash); }
+.template-label { font-weight: 700; font-size: 0.85rem; flex-shrink: 0; }
+.template-hint { font-size: 0.78rem; color: var(--text-muted); }

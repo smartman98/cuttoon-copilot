@@ -337,6 +337,54 @@ async function fetchSessions() {
     : `<p class="muted">아직 세션이 없습니다. "+ 새 세션"으로 시작하세요.</p>`;
 }
 
+// 소재를 처음부터 문장으로 쓰는 게 부담스럽다는 사용자 피드백(2026-08-16)으로 추가 —
+// 완전한 예시 5개를 미리 써두고 클릭 한 번으로 채워 넣게 한다. 고른 뒤에도 직접 수정 가능.
+// 다른 주제로 확장하고 싶으면 이 배열에 항목을 추가하면 됨.
+const SESSION_TEMPLATES = [
+  {
+    label: "① 기본 공감형",
+    hint: "감정이 서서히 바뀌는 흐름",
+    text: "갱년기가 시작되며 몸이 예전 같지 않다고 느낀 엄마. 계단만 올라가도 숨이 차고 무릎이 시큰거렸다. 딸이 권한 운동을 처음엔 손사래치며 거절했다. 마지못해 트레이너와 첫 수업을 시작했다. 호흡법부터 차근차근 배우며 몸이 조금씩 달라지는 걸 느꼈다. 3주 후 계단을 오를 때 숨이 덜 찼다. 한 달 후엔 아침에 일어나는 게 한결 가벼워졌다. 이제는 스스로 운동 시간을 기다리게 됐다.",
+  },
+  {
+    label: "② 거부→전환형",
+    hint: "처음엔 싫다더니 바뀌는 이야기",
+    text: "운동은 젊을 때나 하는 거라며 손사래치던 엄마. 딸의 성화에 못 이겨 억지로 첫 수업에 나갔다. 낯선 동작에 몸이 뻣뻣하게 굳었다. 트레이너가 \"천천히, 숨부터\"라고 다독였다. 두 번째 수업부터는 조금씩 따라 할 만해졌다. 몇 주가 지나자 앉았다 일어날 때 무릎이 편해졌다. 잠도 예전보다 푹 잘 수 있게 됐다. \"진작 할 걸 그랬다\"고 웃으며 말했다.",
+  },
+  {
+    label: "③ 증상 중심형",
+    hint: "무릎 통증 극복 서사",
+    text: "몇 년째 무릎이 시큰거려 계단을 피해 다니던 엄마. 병원에서도 뾰족한 답을 못 들었다. 지인 소개로 시니어 전문 트레이너를 만났다. 무릎 대신 코어와 호흡부터 안정시키는 훈련을 시작했다. 처음엔 반신반의했지만 통증이 조금씩 줄어들었다. 두 달째, 계단을 오를 때 붙잡던 손잡이를 놓을 수 있었다. 이제는 동네를 산책하는 게 즐거워졌다. 무릎보다 마음이 먼저 가벼워진 느낌이라고 했다.",
+  },
+  {
+    label: "④ 유머형",
+    hint: "가볍고 웃긴 톤",
+    text: "\"이 나이에 무슨 운동이냐\"며 딸에게 큰소리쳤던 엄마. 정작 화장실 갈 때마다 무릎에서 나는 소리가 신경 쓰였다. 결국 몰래 트레이너 수업을 예약했다. 첫날 숨이 턱까지 차서 딸에게 등짝을 맞았다고 놀렸다. 그래도 다음 날 또 나갔다. 한 달쯤 지나자 몸이 가벼워졌다며 딸 앞에서 괜히 으스댔다. \"내가 너보다 유연하다\"고 큰소리치기 시작했다. 요즘은 먼저 운동 가자고 딸을 재촉한다.",
+  },
+  {
+    label: "⑤ 트레이너 시점형",
+    hint: "전문성 강조, 실제 계정 톤과 가장 비슷",
+    text: "평생 운동을 해보신 적 없는 어르신이었습니다. 무릎 통증으로 앉았다 일어나는 것조차 힘들어했다. 트레이너는 근력보다 호흡과 힘 전달 순서 인지에 먼저 집중했다. 배→엉덩이→다리 순서로 힘이 전달되는 감각을 매 수업마다 반복했다. 처음 몇 주는 동작 하나하나가 낯설고 어려웠다. 한 달이 지나자 회원은 평생 없던 엉덩이가 생겼다며 웃었다. 자세가 자연스럽게 교정되며 무릎 통증도 줄었다. 이 케이스는 시니어 트레이닝의 좋은 예로 남았다.",
+  },
+];
+
+const templatePickerEl = document.getElementById("template-picker");
+templatePickerEl.innerHTML = SESSION_TEMPLATES.map((t, i) => `
+  <button type="button" class="template-btn" data-index="${i}">
+    <span class="template-label">${t.label}</span>
+    <span class="template-hint">${t.hint}</span>
+  </button>
+`).join("");
+
+templatePickerEl.addEventListener("click", (e) => {
+  const btn = e.target.closest(".template-btn");
+  if (!btn) return;
+  const template = SESSION_TEMPLATES[Number(btn.dataset.index)];
+  document.getElementById("session-material").value = template.text;
+  templatePickerEl.querySelectorAll(".template-btn").forEach((b) => b.classList.remove("active"));
+  btn.classList.add("active");
+});
+
 document.getElementById("new-session-btn").addEventListener("click", () => {
   newSessionForm.hidden = !newSessionForm.hidden;
 });
