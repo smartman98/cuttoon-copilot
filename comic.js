@@ -31,7 +31,7 @@ function generateComicCandidates(materialText, cutCount, editNote, presetSummary
 }
 
 function buildCutPlaceholder(variantIndex, cutNo, totalCuts, presetSummary) {
-  const palettes = ["#f2a93b", "#2a78d6", "#1baf7a"];
+  const palettes = ["#f2a93b", "#2a78d6", "#1baf7a", "#8e8e8e"]; // 4번째(회색)는 Comic Editor 재생성 컷 표시용
   const color = palettes[variantIndex % palettes.length];
   const styleHint = (presetSummary || "").length > 30 ? presetSummary.slice(0, 30) + "…" : (presetSummary || "");
   const svg = `
@@ -48,4 +48,17 @@ function buildCutPlaceholder(variantIndex, cutNo, totalCuts, presetSummary) {
   return "data:image/svg+xml;base64," + Buffer.from(svg, "utf-8").toString("base64");
 }
 
-module.exports = { generateComicCandidates };
+// Comic Editor용 — 완성본에서 컷 하나만 콕 집어 재생성한다(브리프의 "컷별 ... 재생성").
+// 3안 비교 때와 달리 톤 후보가 아니라 "수정됨" 한 가지 결과만 돌려주면 됨.
+function regenerateCut(cutIndex, totalCuts, editNote, presetSummary, sourceCaption) {
+  const base = sourceCaption || `${cutIndex}컷`;
+  const caption = editNote ? `${base} (재생성 반영: ${editNote})` : base;
+  return {
+    index: cutIndex,
+    caption,
+    tone: "재생성됨",
+    image_url: buildCutPlaceholder(3, cutIndex, totalCuts, presetSummary), // 팔레트 인덱스 3 = 회색(수정 표시)
+  };
+}
+
+module.exports = { generateComicCandidates, regenerateCut };

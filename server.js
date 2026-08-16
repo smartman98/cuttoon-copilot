@@ -3,7 +3,7 @@ const express = require("express");
 const { ZipArchive } = require("archiver"); // v8부터 archiver('zip') 팩토리 대신 클래스 export로 바뀜
 const db = require("./db");
 const { suggestStyleCards, buildPlaceholderImage } = require("./suggest");
-const { generateComicCandidates } = require("./comic");
+const { generateComicCandidates, regenerateCut } = require("./comic");
 
 const app = express();
 app.use(express.json());
@@ -195,6 +195,32 @@ app.post("/api/sessions/:id/complete", (req, res) => {
 
   const output = db.prepare("SELECT * FROM comic_outputs WHERE id = ?").get(info.lastInsertRowid);
   res.status(201).json({ ...output, cuts: JSON.parse(output.cuts_json) });
+});
+
+// ---------- Comic Editor ----------
+// 저장된 완성본(comic_outputs)을 컷 단위로 대사/순서/삭제/추가/재생성하고, 새 버전으로 저장한다.
+
+app.get("/api/outputs/:id", (req, res) => {
+  const output = db.prepare("SELECT * FROM comic_outputs WHERE id = ?").get(req.params.id);
+  if (!output) return res.status(404).json({ error: "결과물을 찾을 수 없습니다." });
+  const session = db.prepare("SELECT * FROM sessions WHERE id = ?").get(output.session_id);
+  res.json({ ...output, cuts: JSON.parse(output.cuts_json), session });
+});
+
+// 컷 하나만 재생성 — 미리보기만 반환(저장은 "새 버전으로 저장" 버튼을 눌러야 함)
+app.post("/api/outputs/:id/regenerate-cut", (req, res) => {
+  const output = db.prepare("SELECT * FROM comic_outputs WHERE id = ?").get(req.params.id);
+  if (!output) return res.status(404).json({ error: "결과물을 찾을 수 없습니다." });
+  const session = db.prepare("SELECT * FROM sessions WHERE id = ?").get(output.session_id);
+  const cuts = JSON.parse(output.cuts_json);
+
+  const cutIndex = Number(req.body.cut_index);
+  const editNote = String(req.body.edit_note || "").trim();
+  const sourceCut = cuts.find((c) => c.index === cutIndex);
+  const presetSummary = _presetStyleSummary(session.project_id);
+
+  const newCut = regenerateCut(cutIndex, cuts.length, editNote, presetSummary, sourceCut ? sourceCut.caption : "");
+  res.json({ cut: newCut });
 });
 
 // 연재 확장 — 완성본을 이어받는 새 세션(예: "... - 2편")을 만든다

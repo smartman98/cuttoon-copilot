@@ -12,11 +12,12 @@ const presetView = document.getElementById("preset-view");
 const sessionListView = document.getElementById("session-list-view");
 const sessionDetailView = document.getElementById("session-detail-view");
 const archiveView = document.getElementById("archive-view");
+const comicEditorView = document.getElementById("comic-editor-view");
 
 const workspaceListEl = document.getElementById("workspace-list");
 const projectListEl = document.getElementById("project-list");
 
-const ALL_VIEWS = [workspaceView, projectView, presetView, sessionListView, sessionDetailView, archiveView];
+const ALL_VIEWS = [workspaceView, projectView, presetView, sessionListView, sessionDetailView, archiveView, comicEditorView];
 function hideAllViews() {
   ALL_VIEWS.forEach((v) => { v.hidden = true; });
 }
@@ -99,6 +100,12 @@ function showArchiveView() {
   archiveView.hidden = false;
   renderBreadcrumb();
   fetchArchive();
+}
+
+function showComicEditorView() {
+  hideAllViews();
+  comicEditorView.hidden = false;
+  renderBreadcrumb();
 }
 
 // ---------- Workspace ----------
@@ -381,6 +388,7 @@ function renderCompletedOutputs(outputs) {
       <div class="cut-strip">
         ${o.cuts.map((c) => `<div class="cut-item"><img src="${c.image_url}" alt="컷 ${c.index}" /><p>${c.caption}</p></div>`).join("")}
       </div>
+      <button class="ghost-btn edit-output-btn" data-id="${o.id}">컷 편집</button>
       <button class="ghost-btn continue-btn" data-id="${o.session_id}">이 흐름으로 후속편 만들기</button>
     </div>
   `).join("");
@@ -442,14 +450,117 @@ comicVariantListEl.addEventListener("click", async (e) => {
 });
 
 completedOutputsListEl.addEventListener("click", async (e) => {
-  const btn = e.target.closest(".continue-btn");
-  if (!btn) return;
-  const res = await fetch(`${API}/sessions/${btn.dataset.id}/continue`, { method: "POST" });
-  if (res.ok) {
-    const newSession = await res.json();
-    alert(`후속편 세션 "${newSession.name}"이 생성됐습니다. 세션 목록에서 확인하세요.`);
-    showSessionListView();
+  const continueBtn = e.target.closest(".continue-btn");
+  if (continueBtn) {
+    const res = await fetch(`${API}/sessions/${continueBtn.dataset.id}/continue`, { method: "POST" });
+    if (res.ok) {
+      const newSession = await res.json();
+      alert(`후속편 세션 "${newSession.name}"이 생성됐습니다. 세션 목록에서 확인하세요.`);
+      showSessionListView();
+    }
+    return;
   }
+  const editBtn = e.target.closest(".edit-output-btn");
+  if (editBtn) {
+    await openComicEditor(editBtn.dataset.id);
+  }
+});
+
+// ---------- Comic Editor ----------
+
+let editingCuts = [];
+let editingSessionId = null;
+let editingSourceVersion = null;
+let editingOutputId = null;
+
+const editorCutListEl = document.getElementById("editor-cut-list");
+
+async function openComicEditor(outputId) {
+  const res = await fetch(`${API}/outputs/${outputId}`);
+  const data = await res.json();
+  editingCuts = data.cuts.map((c) => ({ ...c }));
+  editingSessionId = data.session_id;
+  editingSourceVersion = data.version_no;
+  editingOutputId = data.id;
+  document.getElementById("editor-title").textContent = `Comic Editor — 버전 ${editingSourceVersion} 수정 중`;
+  showComicEditorView();
+  renderEditorCuts();
+}
+
+function renderEditorCuts() {
+  editorCutListEl.innerHTML = editingCuts.map((c, i) => `
+    <div class="editor-cut-card" data-pos="${i}">
+      <img src="${c.image_url}" alt="컷 ${i + 1}" />
+      <div class="editor-cut-body">
+        <div class="editor-cut-label">컷 ${i + 1}</div>
+        <textarea class="editor-cut-caption" rows="2">${c.caption}</textarea>
+        <div class="editor-cut-actions">
+          <button class="ghost-btn move-up-btn" ${i === 0 ? "disabled" : ""}>▲</button>
+          <button class="ghost-btn move-down-btn" ${i === editingCuts.length - 1 ? "disabled" : ""}>▼</button>
+          <button class="ghost-btn regenerate-cut-btn">재생성</button>
+          <button class="ghost-btn delete-cut-btn">삭제</button>
+        </div>
+      </div>
+    </div>
+  `).join("");
+}
+
+editorCutListEl.addEventListener("change", (e) => {
+  if (!e.target.classList.contains("editor-cut-caption")) return;
+  const pos = Number(e.target.closest(".editor-cut-card").dataset.pos);
+  editingCuts[pos].caption = e.target.value;
+});
+
+editorCutListEl.addEventListener("click", async (e) => {
+  const card = e.target.closest(".editor-cut-card");
+  if (!card) return;
+  const pos = Number(card.dataset.pos);
+
+  if (e.target.classList.contains("move-up-btn") && pos > 0) {
+    [editingCuts[pos - 1], editingCuts[pos]] = [editingCuts[pos], editingCuts[pos - 1]];
+    renderEditorCuts();
+  } else if (e.target.classList.contains("move-down-btn") && pos < editingCuts.length - 1) {
+    [editingCuts[pos], editingCuts[pos + 1]] = [editingCuts[pos + 1], editingCuts[pos]];
+    renderEditorCuts();
+  } else if (e.target.classList.contains("delete-cut-btn")) {
+    if (editingCuts.length <= 1) { alert("최소 1개 컷은 남아있어야 합니다."); return; }
+    editingCuts.splice(pos, 1);
+    renderEditorCuts();
+  } else if (e.target.classList.contains("regenerate-cut-btn")) {
+    const editNote = prompt("이 컷을 어떻게 바꿀까요? (예: 대사를 더 다정하게)") || "";
+    const res = await fetch(`${API}/outputs/${editingOutputId}/regenerate-cut`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cut_index: pos + 1, edit_note: editNote }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      editingCuts[pos] = { ...data.cut, index: pos + 1 };
+      renderEditorCuts();
+    }
+  }
+});
+
+document.getElementById("editor-add-cut-btn").addEventListener("click", () => {
+  editingCuts.push({ index: editingCuts.length + 1, caption: "새 컷 — 내용을 입력하세요", tone: "새 컷", image_url: editingCuts[0]?.image_url || "" });
+  renderEditorCuts();
+});
+
+document.getElementById("editor-save-btn").addEventListener("click", async () => {
+  const renumbered = editingCuts.map((c, i) => ({ ...c, index: i + 1 }));
+  const res = await fetch(`${API}/sessions/${editingSessionId}/complete`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ cuts: renumbered }),
+  });
+  if (res.ok) {
+    alert("새 버전으로 저장했습니다.");
+    await openSession(editingSessionId);
+  }
+});
+
+document.getElementById("editor-back-btn").addEventListener("click", async () => {
+  await openSession(editingSessionId);
 });
 
 // ---------- Export & Archive ----------

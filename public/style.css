@@ -238,3 +238,21 @@ textarea, input[type="text"], select {
   background: var(--accent-wash);
   color: var(--accent);
 }
+
+.editor-cut-card {
+  display: flex;
+  gap: 12px;
+  border: 1px solid var(--gridline);
+  border-radius: 12px;
+  padding: 12px;
+  margin-bottom: 10px;
+}
+.editor-cut-card img { width: 90px; height: 90px; border-radius: 8px; flex-shrink: 0; object-fit: cover; }
+.editor-cut-body { flex: 1; }
+.editor-cut-label { font-size: 0.78rem; font-weight: 700; color: var(--text-muted); margin-bottom: 4px; }
+.editor-cut-caption { width: 100%; margin: 0 0 6px; }
+.editor-cut-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.editor-cut-actions button { padding: 5px 10px; font-size: 0.78rem; }
+.editor-cut-actions button:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.editor-actions { display: flex; justify-content: space-between; margin-top: 14px; }
