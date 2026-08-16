@@ -443,9 +443,8 @@ comicVariantListEl.addEventListener("click", async (e) => {
     body: JSON.stringify({ cuts: chosen.cuts }),
   });
   if (res.ok) {
-    const detailRes = await fetch(`${API}/sessions/${currentSession.id}`);
-    const data = await detailRes.json();
-    renderCompletedOutputs(data.outputs);
+    alert("완성본으로 저장했습니다.");
+    showSessionListView();
   }
 });
 
