@@ -3,14 +3,22 @@ const API = "/api";
 let currentWorkspace = null;
 let currentProject = null;
 let currentPreset = null;
+let currentSession = null;
 
 const breadcrumbEl = document.getElementById("breadcrumb");
 const workspaceView = document.getElementById("workspace-view");
 const projectView = document.getElementById("project-view");
 const presetView = document.getElementById("preset-view");
+const sessionListView = document.getElementById("session-list-view");
+const sessionDetailView = document.getElementById("session-detail-view");
 
 const workspaceListEl = document.getElementById("workspace-list");
 const projectListEl = document.getElementById("project-list");
+
+const ALL_VIEWS = [workspaceView, projectView, presetView, sessionListView, sessionDetailView];
+function hideAllViews() {
+  ALL_VIEWS.forEach((v) => { v.hidden = true; });
+}
 
 function renderBreadcrumb() {
   const parts = [];
@@ -23,7 +31,11 @@ function renderBreadcrumb() {
   }
   if (currentPreset) {
     parts.push(">");
-    parts.push(`<span>Preset Builder</span>`);
+    parts.push(`<button data-nav="preset">Preset Builder</button>`);
+  }
+  if (currentSession) {
+    parts.push(">");
+    parts.push(`<span>${currentSession.name}</span>`);
   }
   breadcrumbEl.innerHTML = parts.join(" ");
 }
@@ -34,35 +46,51 @@ breadcrumbEl.addEventListener("click", (e) => {
   if (btn.dataset.nav === "workspace") {
     currentProject = null;
     currentPreset = null;
+    currentSession = null;
     showWorkspaceView();
   } else if (btn.dataset.nav === "project") {
     currentPreset = null;
+    currentSession = null;
     showProjectView();
+  } else if (btn.dataset.nav === "preset") {
+    currentSession = null;
+    showPresetView();
   }
 });
 
 function showWorkspaceView() {
+  hideAllViews();
   workspaceView.hidden = false;
-  projectView.hidden = true;
-  presetView.hidden = true;
   renderBreadcrumb();
   fetchWorkspaces();
 }
 
 function showProjectView() {
-  workspaceView.hidden = true;
+  hideAllViews();
   projectView.hidden = false;
-  presetView.hidden = true;
   renderBreadcrumb();
   fetchProjects();
 }
 
 function showPresetView() {
-  workspaceView.hidden = true;
-  projectView.hidden = true;
+  hideAllViews();
   presetView.hidden = false;
   renderBreadcrumb();
   fetchProjectDetail();
+}
+
+function showSessionListView() {
+  hideAllViews();
+  sessionListView.hidden = false;
+  document.getElementById("new-session-form").hidden = true;
+  renderBreadcrumb();
+  fetchSessions();
+}
+
+function showSessionDetailView() {
+  hideAllViews();
+  sessionDetailView.hidden = false;
+  renderBreadcrumb();
 }
 
 // ---------- Workspace ----------
@@ -162,6 +190,9 @@ function renderPresetBuilder(data) {
     step3Block.hidden = true;
     confirmedBlock.hidden = false;
     document.getElementById("confirmed-image").src = preset.confirmed_image_url;
+    // 프리셋이 이미 확정된 프로젝트라면, Preset Builder를 다시 보여줄 필요 없이
+    // 바로 Session Studio로 진입시킨다 (breadcrumb의 "Preset Builder" 버튼으로 언제든 되돌아올 수 있음).
+    showSessionListView();
     return;
   }
 
@@ -268,6 +299,149 @@ candidateGridEl.addEventListener("click", async (e) => {
     body: JSON.stringify({ candidate_id: Number(card.dataset.id) }),
   });
   if (res.ok) fetchProjectDetail();
+});
+
+// ---------- Session Studio ----------
+
+const sessionListEl = document.getElementById("session-list");
+const newSessionForm = document.getElementById("new-session-form");
+const comicVariantListEl = document.getElementById("comic-variant-list");
+const completedOutputsBlock = document.getElementById("completed-outputs-block");
+const completedOutputsListEl = document.getElementById("completed-outputs-list");
+
+async function fetchSessions() {
+  const res = await fetch(`${API}/projects/${currentProject.id}/sessions`);
+  const rows = await res.json();
+  sessionListEl.innerHTML = rows.length
+    ? rows.map((s) => `
+        <li class="card-item" data-id="${s.id}">
+          <span class="name">${s.name}</span>
+          <span class="meta">${s.status === "completed" ? "완성" : "작성중"} · ${s.cut_count}컷</span>
+        </li>
+      `).join("")
+    : `<p class="muted">아직 세션이 없습니다. "+ 새 세션"으로 시작하세요.</p>`;
+}
+
+document.getElementById("new-session-btn").addEventListener("click", () => {
+  newSessionForm.hidden = !newSessionForm.hidden;
+});
+
+document.getElementById("create-session-btn").addEventListener("click", async () => {
+  const name = document.getElementById("session-name").value.trim();
+  const materialText = document.getElementById("session-material").value.trim();
+  const cutCount = document.getElementById("session-cut-count").value;
+  if (!name || !materialText) { alert("세션 이름과 소재를 입력하세요."); return; }
+  const res = await fetch(`${API}/projects/${currentProject.id}/sessions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, material_text: materialText, cut_count: cutCount }),
+  });
+  if (res.ok) {
+    document.getElementById("session-name").value = "";
+    document.getElementById("session-material").value = "";
+    newSessionForm.hidden = true;
+    fetchSessions();
+  }
+});
+
+sessionListEl.addEventListener("click", async (e) => {
+  const item = e.target.closest(".card-item");
+  if (!item) return;
+  await openSession(item.dataset.id);
+});
+
+async function openSession(sessionId) {
+  const res = await fetch(`${API}/sessions/${sessionId}`);
+  const data = await res.json();
+  currentSession = data.session;
+  showSessionDetailView();
+  document.getElementById("session-detail-title").textContent = `Session: ${currentSession.name}`;
+  comicVariantListEl.innerHTML = "";
+  document.getElementById("edit-note").value = "";
+  renderCompletedOutputs(data.outputs);
+}
+
+function renderCompletedOutputs(outputs) {
+  if (!outputs.length) {
+    completedOutputsBlock.hidden = true;
+    return;
+  }
+  completedOutputsBlock.hidden = false;
+  completedOutputsListEl.innerHTML = outputs.map((o) => `
+    <div class="completed-version">
+      <h4>버전 ${o.version_no}</h4>
+      <div class="cut-strip">
+        ${o.cuts.map((c) => `<div class="cut-item"><img src="${c.image_url}" alt="컷 ${c.index}" /><p>${c.caption}</p></div>`).join("")}
+      </div>
+      <button class="ghost-btn continue-btn" data-id="${o.session_id}">이 흐름으로 후속편 만들기</button>
+    </div>
+  `).join("");
+}
+
+function renderVariants(candidates) {
+  comicVariantListEl.innerHTML = candidates.map((v) => `
+    <div class="variant-block" data-variant="${v.variant}">
+      <div class="variant-header">
+        <h4>안 ${v.variant + 1} (${v.tone})</h4>
+        <button class="primary-btn complete-variant-btn" data-variant="${v.variant}">이 안으로 완료</button>
+      </div>
+      <div class="cut-strip">
+        ${v.cuts.map((c) => `<div class="cut-item"><img src="${c.image_url}" alt="컷 ${c.index}" /><p>${c.caption}</p></div>`).join("")}
+      </div>
+    </div>
+  `).join("");
+  comicVariantListEl.dataset.candidates = JSON.stringify(candidates);
+}
+
+document.getElementById("session-generate-btn").addEventListener("click", async () => {
+  const res = await fetch(`${API}/sessions/${currentSession.id}/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  const data = await res.json();
+  if (res.ok) renderVariants(data.candidates);
+});
+
+document.getElementById("session-regenerate-btn").addEventListener("click", async () => {
+  const editNote = document.getElementById("edit-note").value.trim();
+  const res = await fetch(`${API}/sessions/${currentSession.id}/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ edit_note: editNote }),
+  });
+  const data = await res.json();
+  if (res.ok) renderVariants(data.candidates);
+});
+
+comicVariantListEl.addEventListener("click", async (e) => {
+  const btn = e.target.closest(".complete-variant-btn");
+  if (!btn) return;
+  const candidates = JSON.parse(comicVariantListEl.dataset.candidates || "[]");
+  const chosen = candidates.find((c) => String(c.variant) === btn.dataset.variant);
+  if (!chosen) return;
+  if (!confirm(`안 ${chosen.variant + 1}을 완성본으로 저장할까요?`)) return;
+  const res = await fetch(`${API}/sessions/${currentSession.id}/complete`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ cuts: chosen.cuts }),
+  });
+  if (res.ok) {
+    const detailRes = await fetch(`${API}/sessions/${currentSession.id}`);
+    const data = await detailRes.json();
+    renderCompletedOutputs(data.outputs);
+  }
+});
+
+completedOutputsListEl.addEventListener("click", async (e) => {
+  const btn = e.target.closest(".continue-btn");
+  if (!btn) return;
+  const res = await fetch(`${API}/sessions/${btn.dataset.id}/continue`, { method: "POST" });
+  if (res.ok) {
+    const newSession = await res.json();
+    alert(`후속편 세션 "${newSession.name}"이 생성됐습니다. 세션 목록에서 확인하세요.`);
+    showSessionListView();
+  }
 });
 
 showWorkspaceView();

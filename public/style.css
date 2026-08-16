@@ -178,3 +178,27 @@ textarea, input[type="text"], select {
 
 .error { color: #c0392b; font-size: 0.82rem; min-height: 1.2em; margin: 4px 0 0; }
 .muted { color: var(--text-muted); text-align: center; padding: 24px 0; }
+
+.edit-request-row { display: flex; gap: 8px; margin: 12px 0; }
+.edit-request-row input { flex: 1; margin: 0; }
+
+.variant-block {
+  border: 1px solid var(--gridline);
+  border-radius: 12px;
+  padding: 14px;
+  margin-top: 14px;
+}
+.variant-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+
+.cut-strip { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+.cut-item { flex-shrink: 0; width: 110px; text-align: center; }
+.cut-item img { width: 100%; border-radius: 8px; border: 1px solid var(--gridline); }
+.cut-item p { font-size: 0.72rem; color: var(--text-secondary); margin: 4px 0 0; line-height: 1.3; }
+
+.completed-version {
+  border: 1px solid var(--gridline);
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 12px;
+  background: var(--accent-wash);
+}

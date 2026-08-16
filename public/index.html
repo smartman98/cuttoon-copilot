@@ -66,10 +66,46 @@
       <div class="step-block" id="confirmed-block" hidden>
         <h3>✅ 프리셋 확정됨</h3>
         <img id="confirmed-image" class="confirmed-image" alt="확정된 프리셋 대표 이미지" />
-        <div class="next-stub">
-          <h4>Session Studio (2차 해커톤 범위)</h4>
-          <p class="sub">이 프리셋을 반영해서 소재 입력 → 컷 수 질문 → 3안 생성 → 수정 반복으로 이어집니다. 다음 스프린트에서 이어서 만듭니다.</p>
+      </div>
+    </section>
+
+    <!-- 4. Session Studio -->
+    <section id="session-list-view" hidden>
+      <div class="list-header">
+        <h2>Session Studio</h2>
+        <button class="primary-btn" id="new-session-btn">+ 새 세션</button>
+      </div>
+      <ul class="card-list" id="session-list"></ul>
+
+      <div class="step-block" id="new-session-form" hidden>
+        <h3>소재 입력</h3>
+        <input type="text" id="session-name" placeholder="세션 이름 (예: 갱년기 엄마 운동 도전기)" />
+        <textarea id="session-material" rows="3" placeholder="컷툰으로 만들 소재를 자연어로 입력하세요. 문장 여러 개를 쓰면 컷별로 나눠 배치됩니다."></textarea>
+        <select id="session-cut-count">
+          <option value="4">4컷</option>
+          <option value="8">8컷</option>
+          <option value="12">12컷</option>
+        </select>
+        <button class="primary-btn" id="create-session-btn">세션 만들기</button>
+      </div>
+    </section>
+
+    <!-- 5. Session 상세: 채팅형 요청 + 컷툰 캔버스 + 버전 -->
+    <section id="session-detail-view" hidden>
+      <h2 id="session-detail-title">Session</h2>
+
+      <div class="step-block">
+        <button class="primary-btn" id="session-generate-btn">3안 생성</button>
+        <div class="edit-request-row">
+          <input type="text" id="edit-note" placeholder="수정 요청 (예: 3번 컷 대사를 더 다정하게)" />
+          <button class="ghost-btn" id="session-regenerate-btn">수정 반영해서 다시 생성</button>
         </div>
+        <div class="comic-variant-list" id="comic-variant-list"></div>
+      </div>
+
+      <div class="step-block" id="completed-outputs-block" hidden>
+        <h3>완성본 (버전별)</h3>
+        <div id="completed-outputs-list"></div>
       </div>
     </section>
   </div>

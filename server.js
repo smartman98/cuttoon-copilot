@@ -2,6 +2,7 @@ const path = require("path");
 const express = require("express");
 const db = require("./db");
 const { suggestStyleCards, buildPlaceholderImage } = require("./suggest");
+const { generateComicCandidates } = require("./comic");
 
 const app = express();
 app.use(express.json());
@@ -130,6 +131,82 @@ app.post("/api/presets/:id/confirm", (req, res) => {
 
   const preset = db.prepare("SELECT * FROM presets WHERE id = ?").get(req.params.id);
   res.json(preset);
+});
+
+// ---------- Session Studio ----------
+
+function _presetStyleSummary(projectId) {
+  const preset = db.prepare("SELECT * FROM presets WHERE project_id = ?").get(projectId);
+  if (!preset) return "";
+  const cards = db.prepare("SELECT * FROM style_cards WHERE preset_id = ? AND selected = 1").all(preset.id);
+  return cards.map((c) => c.content).join(", ");
+}
+
+app.get("/api/projects/:id/sessions", (req, res) => {
+  const rows = db.prepare("SELECT * FROM sessions WHERE project_id = ? ORDER BY created_at DESC").all(req.params.id);
+  res.json(rows);
+});
+
+app.post("/api/projects/:id/sessions", (req, res) => {
+  const name = String(req.body.name || "").trim();
+  const materialText = String(req.body.material_text || "").trim();
+  const cutCount = Number(req.body.cut_count) || 4;
+  if (!name || !materialText) return res.status(400).json({ error: "세션 이름과 소재 내용이 필요합니다." });
+  const info = db.prepare(
+    "INSERT INTO sessions (project_id, name, material_text, cut_count, status) VALUES (?, ?, ?, ?, 'draft')"
+  ).run(req.params.id, name, materialText, cutCount);
+  const row = db.prepare("SELECT * FROM sessions WHERE id = ?").get(info.lastInsertRowid);
+  res.status(201).json(row);
+});
+
+app.get("/api/sessions/:id", (req, res) => {
+  const session = db.prepare("SELECT * FROM sessions WHERE id = ?").get(req.params.id);
+  if (!session) return res.status(404).json({ error: "세션을 찾을 수 없습니다." });
+  const outputs = db.prepare("SELECT * FROM comic_outputs WHERE session_id = ? ORDER BY version_no").all(session.id);
+  res.json({
+    session,
+    outputs: outputs.map((o) => ({ ...o, cuts: JSON.parse(o.cuts_json) })),
+  });
+});
+
+// 3안 생성 — 저장은 안 하고 미리보기만 돌려준다(완료를 눌러야 comic_outputs에 저장됨).
+app.post("/api/sessions/:id/generate", (req, res) => {
+  const session = db.prepare("SELECT * FROM sessions WHERE id = ?").get(req.params.id);
+  if (!session) return res.status(404).json({ error: "세션을 찾을 수 없습니다." });
+  const editNote = String(req.body.edit_note || "").trim();
+  const presetSummary = _presetStyleSummary(session.project_id);
+  const candidates = generateComicCandidates(session.material_text, session.cut_count, editNote, presetSummary);
+  res.json({ candidates });
+});
+
+// 완료 — 선택한 안을 세션 내 다음 버전 번호로 저장
+app.post("/api/sessions/:id/complete", (req, res) => {
+  const session = db.prepare("SELECT * FROM sessions WHERE id = ?").get(req.params.id);
+  if (!session) return res.status(404).json({ error: "세션을 찾을 수 없습니다." });
+  const cuts = req.body.cuts;
+  if (!Array.isArray(cuts) || cuts.length === 0) return res.status(400).json({ error: "저장할 컷 데이터가 없습니다." });
+
+  const maxVersion = db.prepare("SELECT COALESCE(MAX(version_no), 0) AS m FROM comic_outputs WHERE session_id = ?").get(session.id).m;
+  const info = db.prepare(
+    "INSERT INTO comic_outputs (session_id, version_no, cuts_json) VALUES (?, ?, ?)"
+  ).run(session.id, maxVersion + 1, JSON.stringify(cuts));
+  db.prepare("UPDATE sessions SET status = 'completed' WHERE id = ?").run(session.id);
+
+  const output = db.prepare("SELECT * FROM comic_outputs WHERE id = ?").get(info.lastInsertRowid);
+  res.status(201).json({ ...output, cuts: JSON.parse(output.cuts_json) });
+});
+
+// 연재 확장 — 완성본을 이어받는 새 세션(예: "... - 2편")을 만든다
+app.post("/api/sessions/:id/continue", (req, res) => {
+  const session = db.prepare("SELECT * FROM sessions WHERE id = ?").get(req.params.id);
+  if (!session) return res.status(404).json({ error: "세션을 찾을 수 없습니다." });
+  const newName = `${session.name} - 후속편`;
+  const newMaterial = `(이전 세션 "${session.name}"에서 이어짐) ${session.material_text}`;
+  const info = db.prepare(
+    "INSERT INTO sessions (project_id, name, material_text, cut_count, status) VALUES (?, ?, ?, ?, 'draft')"
+  ).run(session.project_id, newName, newMaterial, session.cut_count);
+  const row = db.prepare("SELECT * FROM sessions WHERE id = ?").get(info.lastInsertRowid);
+  res.status(201).json(row);
 });
 
 const PORT = process.env.PORT || 3500;
