@@ -73,7 +73,10 @@
     <section id="session-list-view" hidden>
       <div class="list-header">
         <h2>Session Studio</h2>
-        <button class="primary-btn" id="new-session-btn">+ 새 세션</button>
+        <div class="header-actions">
+          <button class="ghost-btn" id="view-archive-btn">Export &amp; Archive 보기</button>
+          <button class="primary-btn" id="new-session-btn">+ 새 세션</button>
+        </div>
       </div>
       <ul class="card-list" id="session-list"></ul>
 
@@ -107,6 +110,16 @@
         <h3>완성본 (버전별)</h3>
         <div id="completed-outputs-list"></div>
       </div>
+    </section>
+
+    <!-- 6. Export & Archive -->
+    <section id="archive-view" hidden>
+      <div class="list-header">
+        <h2>Export &amp; Archive</h2>
+        <button class="ghost-btn" id="back-to-sessions-btn">← Session Studio로</button>
+      </div>
+      <p class="sub">완성본을 연재 시작점(첫 세션) 기준으로 묶어서 보여줍니다. 각 완성본은 이미지+캡션 묶음(zip)으로 다운로드할 수 있습니다.</p>
+      <div id="archive-groups"></div>
     </section>
   </div>
 

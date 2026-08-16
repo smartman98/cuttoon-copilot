@@ -57,6 +57,7 @@ db.exec(`
     material_text TEXT,
     cut_count INTEGER,
     status TEXT NOT NULL DEFAULT 'draft',
+    parent_session_id INTEGER REFERENCES sessions(id),
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
@@ -68,5 +69,13 @@ db.exec(`
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 `);
+
+// sessions 테이블이 parent_session_id 없이 이미 만들어져 있던 경우(2026-08-16 이전 DB 파일)
+// 대비 — 연재 시작점을 추적하려면 이 컬럼이 필요해서 뒤늦게 추가했다. 이미 있으면 조용히 무시.
+try {
+  db.exec("ALTER TABLE sessions ADD COLUMN parent_session_id INTEGER REFERENCES sessions(id)");
+} catch (err) {
+  if (!/duplicate column/i.test(err.message)) throw err;
+}
 
 module.exports = db;

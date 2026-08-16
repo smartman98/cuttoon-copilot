@@ -78,6 +78,8 @@ h4 { font-size: 0.9rem; margin: 0 0 4px; }
   cursor: pointer;
   color: var(--text-secondary);
   font-size: 0.85rem;
+  display: inline-block;
+  text-decoration: none;
 }
 
 .card-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
@@ -201,4 +203,38 @@ textarea, input[type="text"], select {
   padding: 14px;
   margin-bottom: 12px;
   background: var(--accent-wash);
+}
+
+.header-actions { display: flex; gap: 8px; }
+
+.archive-group {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.archive-item {
+  border-top: 1px solid var(--gridline);
+  padding-top: 12px;
+  margin-top: 12px;
+}
+.archive-item:first-of-type { border-top: none; margin-top: 8px; padding-top: 0; }
+
+.archive-item-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.archive-item-header .meta { color: var(--text-muted); font-size: 0.78rem; flex: 1; }
+
+.episode-badge {
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--accent-wash);
+  color: var(--accent);
 }

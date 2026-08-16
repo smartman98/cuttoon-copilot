@@ -11,11 +11,12 @@ const projectView = document.getElementById("project-view");
 const presetView = document.getElementById("preset-view");
 const sessionListView = document.getElementById("session-list-view");
 const sessionDetailView = document.getElementById("session-detail-view");
+const archiveView = document.getElementById("archive-view");
 
 const workspaceListEl = document.getElementById("workspace-list");
 const projectListEl = document.getElementById("project-list");
 
-const ALL_VIEWS = [workspaceView, projectView, presetView, sessionListView, sessionDetailView];
+const ALL_VIEWS = [workspaceView, projectView, presetView, sessionListView, sessionDetailView, archiveView];
 function hideAllViews() {
   ALL_VIEWS.forEach((v) => { v.hidden = true; });
 }
@@ -91,6 +92,13 @@ function showSessionDetailView() {
   hideAllViews();
   sessionDetailView.hidden = false;
   renderBreadcrumb();
+}
+
+function showArchiveView() {
+  hideAllViews();
+  archiveView.hidden = false;
+  renderBreadcrumb();
+  fetchArchive();
 }
 
 // ---------- Workspace ----------
@@ -443,5 +451,36 @@ completedOutputsListEl.addEventListener("click", async (e) => {
     showSessionListView();
   }
 });
+
+// ---------- Export & Archive ----------
+
+const archiveGroupsEl = document.getElementById("archive-groups");
+
+document.getElementById("view-archive-btn").addEventListener("click", showArchiveView);
+document.getElementById("back-to-sessions-btn").addEventListener("click", showSessionListView);
+
+async function fetchArchive() {
+  const res = await fetch(`${API}/projects/${currentProject.id}/outputs`);
+  const groups = await res.json();
+  archiveGroupsEl.innerHTML = groups.length
+    ? groups.map((g) => `
+        <div class="archive-group">
+          <h3>${g.root_name}</h3>
+          ${g.items.map((item) => `
+            <div class="archive-item">
+              <div class="archive-item-header">
+                <span class="episode-badge">${item.episode_no}화</span>
+                <span class="meta">${item.session_name} · 버전 ${item.version_no} · ${new Date(item.created_at).toLocaleString("ko-KR")}</span>
+                <a class="ghost-btn" href="${API}/outputs/${item.id}/download">다운로드</a>
+              </div>
+              <div class="cut-strip">
+                ${item.cuts.map((c) => `<div class="cut-item"><img src="${c.image_url}" alt="컷 ${c.index}" /><p>${c.caption}</p></div>`).join("")}
+              </div>
+            </div>
+          `).join("")}
+        </div>
+      `).join("")
+    : `<p class="muted">아직 완성된 결과물이 없습니다. Session Studio에서 컷툰을 완료하면 여기 모입니다.</p>`;
+}
 
 showWorkspaceView();

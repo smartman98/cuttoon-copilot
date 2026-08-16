@@ -1,5 +1,6 @@
 const path = require("path");
 const express = require("express");
+const { ZipArchive } = require("archiver"); // v8부터 archiver('zip') 팩토리 대신 클래스 export로 바뀜
 const db = require("./db");
 const { suggestStyleCards, buildPlaceholderImage } = require("./suggest");
 const { generateComicCandidates } = require("./comic");
@@ -203,10 +204,83 @@ app.post("/api/sessions/:id/continue", (req, res) => {
   const newName = `${session.name} - 후속편`;
   const newMaterial = `(이전 세션 "${session.name}"에서 이어짐) ${session.material_text}`;
   const info = db.prepare(
-    "INSERT INTO sessions (project_id, name, material_text, cut_count, status) VALUES (?, ?, ?, ?, 'draft')"
-  ).run(session.project_id, newName, newMaterial, session.cut_count);
+    "INSERT INTO sessions (project_id, name, material_text, cut_count, status, parent_session_id) VALUES (?, ?, ?, ?, 'draft', ?)"
+  ).run(session.project_id, newName, newMaterial, session.cut_count, session.id);
   const row = db.prepare("SELECT * FROM sessions WHERE id = ?").get(info.lastInsertRowid);
   res.status(201).json(row);
+});
+
+// ---------- Export & Archive ----------
+
+// 세션의 parent_session_id를 따라 올라가서 "연재 시작점"(맨 처음 세션)을 찾는다.
+function _findRootSession(session, sessionMap) {
+  let cur = session;
+  while (cur.parent_session_id && sessionMap.has(cur.parent_session_id)) {
+    cur = sessionMap.get(cur.parent_session_id);
+  }
+  return cur;
+}
+
+// 프로젝트의 모든 완성본을 연재 시작점 기준으로 묶어서 반환 — 결과물 번호(화)는
+// 시리즈 내 생성 순서로 매긴다.
+app.get("/api/projects/:id/outputs", (req, res) => {
+  const sessions = db.prepare("SELECT * FROM sessions WHERE project_id = ?").all(req.params.id);
+  const sessionMap = new Map(sessions.map((s) => [s.id, s]));
+
+  const outputs = db.prepare(`
+    SELECT comic_outputs.*, sessions.name AS session_name
+    FROM comic_outputs
+    JOIN sessions ON sessions.id = comic_outputs.session_id
+    WHERE sessions.project_id = ?
+    ORDER BY comic_outputs.created_at ASC
+  `).all(req.params.id);
+
+  const groups = new Map(); // root_session_id -> { root_session_id, root_name, items: [] }
+  for (const o of outputs) {
+    const session = sessionMap.get(o.session_id);
+    const root = _findRootSession(session, sessionMap);
+    if (!groups.has(root.id)) {
+      groups.set(root.id, { root_session_id: root.id, root_name: root.name, items: [] });
+    }
+    groups.get(root.id).items.push({
+      id: o.id,
+      session_id: o.session_id,
+      session_name: o.session_name,
+      version_no: o.version_no,
+      created_at: o.created_at,
+      cuts: JSON.parse(o.cuts_json),
+    });
+  }
+
+  const result = [...groups.values()].map((g) => ({
+    ...g,
+    items: g.items.map((item, i) => ({ ...item, episode_no: i + 1 })),
+  }));
+  res.json(result);
+});
+
+// 완성본 하나를 컷 이미지 + 캡션 텍스트 묶음(zip)으로 내려받기.
+// 인스타그램 자동 게시는 범위 밖 — 다운로드까지만(브리프 4장 명시).
+app.get("/api/outputs/:id/download", (req, res) => {
+  const output = db.prepare("SELECT * FROM comic_outputs WHERE id = ?").get(req.params.id);
+  if (!output) return res.status(404).json({ error: "결과물을 찾을 수 없습니다." });
+  const cuts = JSON.parse(output.cuts_json);
+
+  res.attachment(`comic_output_v${output.version_no}.zip`);
+  const archive = new ZipArchive();
+  archive.on("error", (err) => res.status(500).end(String(err)));
+  archive.pipe(res);
+
+  const captionLines = [];
+  cuts.forEach((cut, i) => {
+    const match = /^data:image\/svg\+xml;base64,(.+)$/.exec(cut.image_url);
+    if (match) {
+      archive.append(Buffer.from(match[1], "base64"), { name: `cut_${String(i + 1).padStart(2, "0")}.svg` });
+    }
+    captionLines.push(`컷 ${i + 1}: ${cut.caption}`);
+  });
+  archive.append(captionLines.join("\n"), { name: "captions.txt" });
+  archive.finalize();
 });
 
 const PORT = process.env.PORT || 3500;
