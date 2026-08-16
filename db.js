@@ -2,8 +2,11 @@
 // 설치가 안 됐음(2026-08-16 확인). node:sqlite는 빌드 없이 바로 동작해서 이걸로 대체.
 const { DatabaseSync } = require("node:sqlite");
 const path = require("path");
+const fs = require("fs");
 
-const db = new DatabaseSync(path.join(__dirname, "data", "cuttoon.db"));
+const dataDir = path.join(__dirname, "data");
+fs.mkdirSync(dataDir, { recursive: true }); // 배포 환경에 data/ 폴더가 없을 수 있어 방어적으로 생성
+const db = new DatabaseSync(path.join(dataDir, "cuttoon.db"));
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS workspaces (
