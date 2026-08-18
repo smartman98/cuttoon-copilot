@@ -2,8 +2,15 @@ const path = require("path");
 const express = require("express");
 const { ZipArchive } = require("archiver"); // v8부터 archiver('zip') 팩토리 대신 클래스 export로 바뀜
 const db = require("./db");
-const { suggestStyleCards, buildPlaceholderImage } = require("./suggest");
-const { generateComicCandidates, regenerateCut } = require("./comic");
+const { analyzeReference, buildCharacterSheetImage } = require("./suggest");
+const {
+  CUT_COUNT,
+  WIZARD_OPTIONS,
+  defaultWizardValue,
+  generateCoverVariants,
+  continueRemainingCuts,
+  regenerateCut,
+} = require("./comic");
 
 const app = express();
 app.use(express.json());
@@ -18,57 +25,26 @@ function deleteSessionCascade(sessionId) {
 }
 
 function deleteProjectCascade(projectId) {
-  const preset = db.prepare("SELECT * FROM presets WHERE project_id = ?").get(projectId);
-  if (preset) {
-    db.prepare("DELETE FROM style_cards WHERE preset_id = ?").run(preset.id);
-    db.prepare("DELETE FROM preset_candidates WHERE preset_id = ?").run(preset.id);
-    db.prepare("DELETE FROM presets WHERE id = ?").run(preset.id);
-  }
+  db.prepare("DELETE FROM presets WHERE project_id = ?").run(projectId);
   const sessions = db.prepare("SELECT id FROM sessions WHERE project_id = ?").all(projectId);
   for (const s of sessions) db.prepare("DELETE FROM comic_outputs WHERE session_id = ?").run(s.id);
   db.prepare("DELETE FROM sessions WHERE project_id = ?").run(projectId);
   db.prepare("DELETE FROM projects WHERE id = ?").run(projectId);
 }
 
-function deleteWorkspaceCascade(workspaceId) {
-  const projects = db.prepare("SELECT id FROM projects WHERE workspace_id = ?").all(workspaceId);
-  for (const p of projects) deleteProjectCascade(p.id);
-  db.prepare("DELETE FROM workspaces WHERE id = ?").run(workspaceId);
-}
+// ---------- Project (+ Preset 자동 생성) — Workspace 없이 최상위 ----------
 
-// ---------- Workspace ----------
-
-app.get("/api/workspaces", (req, res) => {
-  const rows = db.prepare("SELECT * FROM workspaces ORDER BY created_at DESC").all();
+app.get("/api/projects", (req, res) => {
+  const rows = db.prepare("SELECT * FROM projects ORDER BY created_at DESC").all();
   res.json(rows);
 });
 
-app.post("/api/workspaces", (req, res) => {
+app.post("/api/projects", (req, res) => {
   const name = String(req.body.name || "").trim();
   if (!name) return res.status(400).json({ error: "이름이 필요합니다." });
-  const info = db.prepare("INSERT INTO workspaces (name) VALUES (?)").run(name);
-  const row = db.prepare("SELECT * FROM workspaces WHERE id = ?").get(info.lastInsertRowid);
-  res.status(201).json(row);
-});
-
-app.delete("/api/workspaces/:id", (req, res) => {
-  deleteWorkspaceCascade(req.params.id);
-  res.status(204).end();
-});
-
-// ---------- Project (+ Preset 자동 생성) ----------
-
-app.get("/api/workspaces/:id/projects", (req, res) => {
-  const rows = db.prepare("SELECT * FROM projects WHERE workspace_id = ? ORDER BY created_at DESC").all(req.params.id);
-  res.json(rows);
-});
-
-app.post("/api/workspaces/:id/projects", (req, res) => {
-  const name = String(req.body.name || "").trim();
-  if (!name) return res.status(400).json({ error: "이름이 필요합니다." });
-  const info = db.prepare("INSERT INTO projects (workspace_id, name) VALUES (?, ?)").run(req.params.id, name);
+  const info = db.prepare("INSERT INTO projects (name) VALUES (?)").run(name);
   const projectId = info.lastInsertRowid;
-  db.prepare("INSERT INTO presets (project_id, status) VALUES (?, 'draft')").run(projectId);
+  db.prepare("INSERT INTO presets (project_id, status) VALUES (?, 'empty')").run(projectId);
   const row = db.prepare("SELECT * FROM projects WHERE id = ?").get(projectId);
   res.status(201).json(row);
 });
@@ -78,107 +54,66 @@ app.delete("/api/projects/:id", (req, res) => {
   res.status(204).end();
 });
 
-// 프로젝트 상세 = 프리셋 + 스타일카드 + 대표이미지 후보까지 한 번에
+// 프로젝트 상세 = 프리셋까지 한 번에
 app.get("/api/projects/:id", (req, res) => {
   const project = db.prepare("SELECT * FROM projects WHERE id = ?").get(req.params.id);
   if (!project) return res.status(404).json({ error: "프로젝트를 찾을 수 없습니다." });
   const preset = db.prepare("SELECT * FROM presets WHERE project_id = ?").get(req.params.id);
-  const cards = preset
-    ? db.prepare("SELECT * FROM style_cards WHERE preset_id = ? ORDER BY sort_order, id").all(preset.id)
-    : [];
-  const candidates = preset
-    ? db.prepare("SELECT * FROM preset_candidates WHERE preset_id = ? ORDER BY id").all(preset.id)
-    : [];
-  res.json({ project, preset, cards, candidates });
+  res.json({ project, preset });
 });
 
-// ---------- Preset Builder ----------
+// ---------- Preset — 체크박스 없이: 업로드(설명) → 자동분석 → 확정/다시뽑기 ----------
 
-// 1단계: 추출 및 제안 — 레퍼런스 설명을 받아 스타일 카드 제안을 만들어 누적한다(선택 상태로).
-app.post("/api/presets/:id/suggest", (req, res) => {
+app.post("/api/presets/:id/analyze", (req, res) => {
   const preset = db.prepare("SELECT * FROM presets WHERE id = ?").get(req.params.id);
   if (!preset) return res.status(404).json({ error: "프리셋을 찾을 수 없습니다." });
   const note = String(req.body.reference_note || "").trim();
 
-  db.prepare("UPDATE presets SET reference_note = ?, status = 'building' WHERE id = ?").run(note, preset.id);
+  const sheet = analyzeReference(note);
+  const summary = Object.values(sheet).join(", ");
+  const draftImage = buildCharacterSheetImage(1, summary);
 
-  const suggestions = suggestStyleCards(note);
-  const insert = db.prepare(
-    "INSERT INTO style_cards (preset_id, category, content, selected, sort_order) VALUES (?, ?, ?, 1, ?)"
-  );
-  suggestions.forEach((s, i) => insert.run(preset.id, s.category, s.content, i));
+  db.prepare(
+    "UPDATE presets SET reference_note = ?, character_sheet_json = ?, draft_image_url = ?, status = 'proposed' WHERE id = ?"
+  ).run(note, JSON.stringify(sheet), draftImage, preset.id);
 
-  const cards = db.prepare("SELECT * FROM style_cards WHERE preset_id = ? ORDER BY sort_order, id").all(preset.id);
-  res.json({ cards });
+  const row = db.prepare("SELECT * FROM presets WHERE id = ?").get(preset.id);
+  res.json({ ...row, character_sheet: sheet });
 });
 
-// 2단계: 선택 및 누적 — 카드 추가(직접 입력) / 토글(선택 해제) / 삭제
-app.post("/api/presets/:id/cards", (req, res) => {
-  const category = String(req.body.category || "rule");
-  const content = String(req.body.content || "").trim();
-  if (!content) return res.status(400).json({ error: "내용이 필요합니다." });
-  const maxOrder = db.prepare("SELECT COALESCE(MAX(sort_order), -1) AS m FROM style_cards WHERE preset_id = ?").get(req.params.id).m;
-  const info = db.prepare(
-    "INSERT INTO style_cards (preset_id, category, content, selected, sort_order) VALUES (?, ?, ?, 1, ?)"
-  ).run(req.params.id, category, content, maxOrder + 1);
-  const row = db.prepare("SELECT * FROM style_cards WHERE id = ?").get(info.lastInsertRowid);
-  res.status(201).json(row);
-});
-
-app.patch("/api/style-cards/:id", (req, res) => {
-  const card = db.prepare("SELECT * FROM style_cards WHERE id = ?").get(req.params.id);
-  if (!card) return res.status(404).json({ error: "카드를 찾을 수 없습니다." });
-  const selected = req.body.selected ? 1 : 0;
-  db.prepare("UPDATE style_cards SET selected = ? WHERE id = ?").run(selected, req.params.id);
-  res.json({ ...card, selected });
-});
-
-app.delete("/api/style-cards/:id", (req, res) => {
-  db.prepare("DELETE FROM style_cards WHERE id = ?").run(req.params.id);
-  res.status(204).end();
-});
-
-// 3단계: 생성 및 확정 — 선택된 카드들을 요약해서 대표 이미지 3안(플레이스홀더) 생성
-app.post("/api/presets/:id/generate", (req, res) => {
+// 다시 뽑기 — 선택지 고르기 없이 통째로 재시도(브리프: "마음에 안 들면 다시 뽑기").
+app.post("/api/presets/:id/reroll", (req, res) => {
   const preset = db.prepare("SELECT * FROM presets WHERE id = ?").get(req.params.id);
   if (!preset) return res.status(404).json({ error: "프리셋을 찾을 수 없습니다." });
-  const selectedCards = db.prepare("SELECT * FROM style_cards WHERE preset_id = ? AND selected = 1 ORDER BY sort_order").all(preset.id);
-  if (selectedCards.length === 0) return res.status(400).json({ error: "선택된 스타일 카드가 없습니다." });
+  const sheet = analyzeReference(preset.reference_note);
+  const summary = Object.values(sheet).join(", ");
+  const draftImage = buildCharacterSheetImage(Math.floor(Math.random() * 1000), summary);
 
-  db.prepare("DELETE FROM preset_candidates WHERE preset_id = ?").run(preset.id);
-  const summary = selectedCards.map((c) => c.content).join(", ");
-  const insert = db.prepare("INSERT INTO preset_candidates (preset_id, image_url) VALUES (?, ?)");
-  const candidates = [];
-  for (let i = 0; i < 3; i++) {
-    const imageUrl = buildPlaceholderImage(i, summary);
-    const info = insert.run(preset.id, imageUrl);
-    candidates.push({ id: info.lastInsertRowid, preset_id: preset.id, image_url: imageUrl, selected: 0 });
-  }
-  res.json({ candidates });
+  db.prepare(
+    "UPDATE presets SET character_sheet_json = ?, draft_image_url = ? WHERE id = ?"
+  ).run(JSON.stringify(sheet), draftImage, preset.id);
+
+  const row = db.prepare("SELECT * FROM presets WHERE id = ?").get(preset.id);
+  res.json({ ...row, character_sheet: sheet });
 });
 
-// 최종안 선택 -> 프리셋 확정
 app.post("/api/presets/:id/confirm", (req, res) => {
-  const candidateId = req.body.candidate_id;
-  const candidate = db.prepare("SELECT * FROM preset_candidates WHERE id = ? AND preset_id = ?").get(candidateId, req.params.id);
-  if (!candidate) return res.status(404).json({ error: "선택한 후보를 찾을 수 없습니다." });
-
-  db.prepare("UPDATE preset_candidates SET selected = 0 WHERE preset_id = ?").run(req.params.id);
-  db.prepare("UPDATE preset_candidates SET selected = 1 WHERE id = ?").run(candidateId);
-  db.prepare("UPDATE presets SET status = 'confirmed', confirmed_image_url = ? WHERE id = ?").run(candidate.image_url, req.params.id);
-
   const preset = db.prepare("SELECT * FROM presets WHERE id = ?").get(req.params.id);
-  res.json(preset);
+  if (!preset) return res.status(404).json({ error: "프리셋을 찾을 수 없습니다." });
+  if (!preset.draft_image_url) return res.status(400).json({ error: "먼저 분석을 실행하세요." });
+  db.prepare("UPDATE presets SET status = 'confirmed', confirmed_image_url = ? WHERE id = ?")
+    .run(preset.draft_image_url, preset.id);
+  const row = db.prepare("SELECT * FROM presets WHERE id = ?").get(preset.id);
+  res.json(row);
 });
 
-// ---------- Session Studio ----------
-
-function _presetStyleSummary(projectId) {
+function presetStyleSummary(projectId) {
   const preset = db.prepare("SELECT * FROM presets WHERE project_id = ?").get(projectId);
-  if (!preset) return "";
-  const cards = db.prepare("SELECT * FROM style_cards WHERE preset_id = ? AND selected = 1").all(preset.id);
-  return cards.map((c) => c.content).join(", ");
+  if (!preset || !preset.character_sheet_json) return "";
+  return Object.values(JSON.parse(preset.character_sheet_json)).join(", ");
 }
+
+// ---------- Session Studio — 3턴 빈칸채우기 → 표지 3안 → 이어서 4컷 ----------
 
 app.get("/api/projects/:id/sessions", (req, res) => {
   const rows = db.prepare("SELECT * FROM sessions WHERE project_id = ? ORDER BY created_at DESC").all(req.params.id);
@@ -186,13 +121,11 @@ app.get("/api/projects/:id/sessions", (req, res) => {
 });
 
 app.post("/api/projects/:id/sessions", (req, res) => {
-  const name = String(req.body.name || "").trim();
   const materialText = String(req.body.material_text || "").trim();
-  const cutCount = Number(req.body.cut_count) || 4;
-  if (!name || !materialText) return res.status(400).json({ error: "세션 이름과 소재 내용이 필요합니다." });
+  if (!materialText) return res.status(400).json({ error: "소재 내용이 필요합니다." });
   const info = db.prepare(
-    "INSERT INTO sessions (project_id, name, material_text, cut_count, status) VALUES (?, ?, ?, ?, 'draft')"
-  ).run(req.params.id, name, materialText, cutCount);
+    "INSERT INTO sessions (project_id, material_text, turn, status) VALUES (?, ?, 1, 'wizard')"
+  ).run(req.params.id, materialText);
   const row = db.prepare("SELECT * FROM sessions WHERE id = ?").get(info.lastInsertRowid);
   res.status(201).json(row);
 });
@@ -208,80 +141,120 @@ app.get("/api/sessions/:id", (req, res) => {
   const outputs = db.prepare("SELECT * FROM comic_outputs WHERE session_id = ? ORDER BY version_no").all(session.id);
   res.json({
     session,
+    wizardOptions: WIZARD_OPTIONS,
     outputs: outputs.map((o) => ({ ...o, cuts: JSON.parse(o.cuts_json) })),
   });
 });
 
-// 3안 생성 — 저장은 안 하고 미리보기만 돌려준다(완료를 눌러야 comic_outputs에 저장됨).
-app.post("/api/sessions/:id/generate", (req, res) => {
+// 3턴 중 하나에 답하고 다음 턴으로 — 소재에 이미 정보가 있으면 이 턴은 화면에서 안 보여줄 수도
+// 있지만(브리프), 스텁에서는 항상 3턴을 보여주고 사용자가 직접 고르게 한다.
+app.post("/api/sessions/:id/answer", (req, res) => {
+  const { field, value } = req.body;
+  if (!["template", "angle", "cta"].includes(field)) return res.status(400).json({ error: "잘못된 필드입니다." });
   const session = db.prepare("SELECT * FROM sessions WHERE id = ?").get(req.params.id);
   if (!session) return res.status(404).json({ error: "세션을 찾을 수 없습니다." });
-  const editNote = String(req.body.edit_note || "").trim();
-  const presetSummary = _presetStyleSummary(session.project_id);
-  const candidates = generateComicCandidates(session.material_text, session.cut_count, editNote, presetSummary);
-  res.json({ candidates });
+  const nextTurn = Math.min(session.turn + 1, 4);
+  db.prepare(`UPDATE sessions SET ${field} = ?, turn = ? WHERE id = ?`).run(value, nextTurn, req.params.id);
+  const row = db.prepare("SELECT * FROM sessions WHERE id = ?").get(req.params.id);
+  res.json(row);
 });
 
-// 완료 — 선택한 안을 세션 내 다음 버전 번호로 저장
-app.post("/api/sessions/:id/complete", (req, res) => {
+// "알아서 해줘" — 남은 빈칸을 기본값으로 채우고 곧장 생성 단계로.
+app.post("/api/sessions/:id/skip", (req, res) => {
   const session = db.prepare("SELECT * FROM sessions WHERE id = ?").get(req.params.id);
   if (!session) return res.status(404).json({ error: "세션을 찾을 수 없습니다." });
-  const cuts = req.body.cuts;
-  if (!Array.isArray(cuts) || cuts.length === 0) return res.status(400).json({ error: "저장할 컷 데이터가 없습니다." });
+  const template = session.template || defaultWizardValue("template");
+  const angle = session.angle || defaultWizardValue("angle");
+  const cta = session.cta || defaultWizardValue("cta");
+  db.prepare("UPDATE sessions SET template = ?, angle = ?, cta = ?, turn = 4 WHERE id = ?")
+    .run(template, angle, cta, req.params.id);
+  const row = db.prepare("SELECT * FROM sessions WHERE id = ?").get(req.params.id);
+  res.json(row);
+});
 
-  const maxVersion = db.prepare("SELECT COALESCE(MAX(version_no), 0) AS m FROM comic_outputs WHERE session_id = ?").get(session.id).m;
+// 표지컷 3안 생성 — 저장은 안 하고 미리보기만(고른 뒤 pick-cover에서 나머지 이어서 생성+저장).
+app.post("/api/sessions/:id/generate-covers", (req, res) => {
+  const session = db.prepare("SELECT * FROM sessions WHERE id = ?").get(req.params.id);
+  if (!session) return res.status(404).json({ error: "세션을 찾을 수 없습니다." });
+  const summary = presetStyleSummary(session.project_id);
+  const template = session.template || defaultWizardValue("template");
+  const angle = session.angle || defaultWizardValue("angle");
+  const cta = session.cta || defaultWizardValue("cta");
+  const variants = generateCoverVariants(session.material_text, template, angle, cta, summary);
+  db.prepare("UPDATE sessions SET status = 'covers' WHERE id = ?").run(session.id);
+  res.json({ variants });
+});
+
+// 표지 하나를 고르면, 그 톤을 이어받아 나머지 3컷까지 생성하고 완성본으로 저장.
+app.post("/api/sessions/:id/pick-cover", (req, res) => {
+  const session = db.prepare("SELECT * FROM sessions WHERE id = ?").get(req.params.id);
+  if (!session) return res.status(404).json({ error: "세션을 찾을 수 없습니다." });
+  const { variant, tone } = req.body;
+  const summary = presetStyleSummary(session.project_id);
+  const cuts = continueRemainingCuts(session.material_text, variant, tone, summary);
+
   const info = db.prepare(
-    "INSERT INTO comic_outputs (session_id, version_no, cuts_json) VALUES (?, ?, ?)"
-  ).run(session.id, maxVersion + 1, JSON.stringify(cuts));
-  db.prepare("UPDATE sessions SET status = 'completed' WHERE id = ?").run(session.id);
+    "INSERT INTO comic_outputs (session_id, version_no, cuts_json) VALUES (?, 1, ?)"
+  ).run(session.id, JSON.stringify(cuts));
+  db.prepare("UPDATE sessions SET status = 'completed', cover_variant_index = ? WHERE id = ?").run(variant, session.id);
 
   const output = db.prepare("SELECT * FROM comic_outputs WHERE id = ?").get(info.lastInsertRowid);
   res.status(201).json({ ...output, cuts: JSON.parse(output.cuts_json) });
 });
 
-// ---------- Comic Editor ----------
-// 저장된 완성본(comic_outputs)을 컷 단위로 대사/순서/삭제/추가/재생성하고, 새 버전으로 저장한다.
-
-app.get("/api/outputs/:id", (req, res) => {
-  const output = db.prepare("SELECT * FROM comic_outputs WHERE id = ?").get(req.params.id);
-  if (!output) return res.status(404).json({ error: "결과물을 찾을 수 없습니다." });
-  const session = db.prepare("SELECT * FROM sessions WHERE id = ?").get(output.session_id);
-  res.json({ ...output, cuts: JSON.parse(output.cuts_json), session });
+// 컷 편집(Comic Editor) — 완성본을 다시 고쳐서 새 버전으로 저장.
+app.post("/api/sessions/:id/save-version", (req, res) => {
+  const session = db.prepare("SELECT * FROM sessions WHERE id = ?").get(req.params.id);
+  if (!session) return res.status(404).json({ error: "세션을 찾을 수 없습니다." });
+  const cuts = req.body.cuts;
+  if (!Array.isArray(cuts) || cuts.length === 0) return res.status(400).json({ error: "저장할 컷 데이터가 없습니다." });
+  const maxVersion = db.prepare("SELECT COALESCE(MAX(version_no), 0) AS m FROM comic_outputs WHERE session_id = ?").get(session.id).m;
+  const info = db.prepare(
+    "INSERT INTO comic_outputs (session_id, version_no, cuts_json) VALUES (?, ?, ?)"
+  ).run(session.id, maxVersion + 1, JSON.stringify(cuts));
+  const output = db.prepare("SELECT * FROM comic_outputs WHERE id = ?").get(info.lastInsertRowid);
+  res.status(201).json({ ...output, cuts: JSON.parse(output.cuts_json) });
 });
 
-// 컷 하나만 재생성 — 미리보기만 반환(저장은 "새 버전으로 저장" 버튼을 눌러야 함)
-app.post("/api/outputs/:id/regenerate-cut", (req, res) => {
+// 컷 하나만 다시 그리기(브리프: 후순위 기능이지만 데이터 형태는 미리 맞춰둠)
+app.post("/api/sessions/:id/regenerate-cut", (req, res) => {
+  const session = db.prepare("SELECT * FROM sessions WHERE id = ?").get(req.params.id);
+  if (!session) return res.status(404).json({ error: "세션을 찾을 수 없습니다." });
+  const { cut_index, edit_note, source_caption } = req.body;
+  const summary = presetStyleSummary(session.project_id);
+  const cut = regenerateCut(cut_index, CUT_COUNT, edit_note, summary, source_caption);
+  res.json({ cut });
+});
+
+// 말풍선 위치 저장(드래그 결과) — 이동만 가능, 크기/꼬리/글꼴은 자동(브리프 명시).
+app.patch("/api/outputs/:id/bubble", (req, res) => {
   const output = db.prepare("SELECT * FROM comic_outputs WHERE id = ?").get(req.params.id);
   if (!output) return res.status(404).json({ error: "결과물을 찾을 수 없습니다." });
-  const session = db.prepare("SELECT * FROM sessions WHERE id = ?").get(output.session_id);
+  const { cut_index, x, y } = req.body;
   const cuts = JSON.parse(output.cuts_json);
-
-  const cutIndex = Number(req.body.cut_index);
-  const editNote = String(req.body.edit_note || "").trim();
-  const sourceCut = cuts.find((c) => c.index === cutIndex);
-  const presetSummary = _presetStyleSummary(session.project_id);
-
-  const newCut = regenerateCut(cutIndex, cuts.length, editNote, presetSummary, sourceCut ? sourceCut.caption : "");
-  res.json({ cut: newCut });
+  const cut = cuts.find((c) => c.index === cut_index);
+  if (!cut) return res.status(404).json({ error: "컷을 찾을 수 없습니다." });
+  cut.bubble_x = x;
+  cut.bubble_y = y;
+  db.prepare("UPDATE comic_outputs SET cuts_json = ? WHERE id = ?").run(JSON.stringify(cuts), output.id);
+  res.json({ ok: true });
 });
 
-// 연재 확장 — 완성본을 이어받는 새 세션(예: "... - 2편")을 만든다
+// 연재 확장 — 완성본을 이어받는 새 세션을 만든다(브리프: 후순위 기능, 구조는 유지).
 app.post("/api/sessions/:id/continue", (req, res) => {
   const session = db.prepare("SELECT * FROM sessions WHERE id = ?").get(req.params.id);
   if (!session) return res.status(404).json({ error: "세션을 찾을 수 없습니다." });
-  const newName = `${session.name} - 후속편`;
-  const newMaterial = `(이전 세션 "${session.name}"에서 이어짐) ${session.material_text}`;
+  const newMaterial = `(이전 편에서 이어짐) ${session.material_text}`;
   const info = db.prepare(
-    "INSERT INTO sessions (project_id, name, material_text, cut_count, status, parent_session_id) VALUES (?, ?, ?, ?, 'draft', ?)"
-  ).run(session.project_id, newName, newMaterial, session.cut_count, session.id);
+    "INSERT INTO sessions (project_id, material_text, turn, status, parent_session_id) VALUES (?, ?, 1, 'wizard', ?)"
+  ).run(session.project_id, newMaterial, session.id);
   const row = db.prepare("SELECT * FROM sessions WHERE id = ?").get(info.lastInsertRowid);
   res.status(201).json(row);
 });
 
 // ---------- Export & Archive ----------
 
-// 세션의 parent_session_id를 따라 올라가서 "연재 시작점"(맨 처음 세션)을 찾는다.
-function _findRootSession(session, sessionMap) {
+function findRootSession(session, sessionMap) {
   let cur = session;
   while (cur.parent_session_id && sessionMap.has(cur.parent_session_id)) {
     cur = sessionMap.get(cur.parent_session_id);
@@ -289,31 +262,29 @@ function _findRootSession(session, sessionMap) {
   return cur;
 }
 
-// 프로젝트의 모든 완성본을 연재 시작점 기준으로 묶어서 반환 — 결과물 번호(화)는
-// 시리즈 내 생성 순서로 매긴다.
 app.get("/api/projects/:id/outputs", (req, res) => {
   const sessions = db.prepare("SELECT * FROM sessions WHERE project_id = ?").all(req.params.id);
   const sessionMap = new Map(sessions.map((s) => [s.id, s]));
 
   const outputs = db.prepare(`
-    SELECT comic_outputs.*, sessions.name AS session_name
+    SELECT comic_outputs.*, sessions.material_text AS session_material
     FROM comic_outputs
     JOIN sessions ON sessions.id = comic_outputs.session_id
     WHERE sessions.project_id = ?
     ORDER BY comic_outputs.created_at ASC
   `).all(req.params.id);
 
-  const groups = new Map(); // root_session_id -> { root_session_id, root_name, items: [] }
+  const groups = new Map();
   for (const o of outputs) {
     const session = sessionMap.get(o.session_id);
-    const root = _findRootSession(session, sessionMap);
+    const root = findRootSession(session, sessionMap);
     if (!groups.has(root.id)) {
-      groups.set(root.id, { root_session_id: root.id, root_name: root.name, items: [] });
+      groups.set(root.id, { root_session_id: root.id, root_label: root.material_text.slice(0, 24), items: [] });
     }
     groups.get(root.id).items.push({
       id: o.id,
       session_id: o.session_id,
-      session_name: o.session_name,
+      session_label: o.session_material.slice(0, 24),
       version_no: o.version_no,
       created_at: o.created_at,
       cuts: JSON.parse(o.cuts_json),
@@ -327,8 +298,6 @@ app.get("/api/projects/:id/outputs", (req, res) => {
   res.json(result);
 });
 
-// 완성본 하나를 컷 이미지 + 캡션 텍스트 묶음(zip)으로 내려받기.
-// 인스타그램 자동 게시는 범위 밖 — 다운로드까지만(브리프 4장 명시).
 app.get("/api/outputs/:id/download", (req, res) => {
   const output = db.prepare("SELECT * FROM comic_outputs WHERE id = ?").get(req.params.id);
   if (!output) return res.status(404).json({ error: "결과물을 찾을 수 없습니다." });
